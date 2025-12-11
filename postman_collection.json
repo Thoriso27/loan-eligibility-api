@@ -1,0 +1,45 @@
+
+{
+  "info": {
+    "name": "Loan Eligibility API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Eligibility - Apply Loan",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "http://localhost:8080/apply-loan" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"national_id\":\"12345678\",\"loan_amount\":600000,\"term_months\":12}"
+        }
+      }
+    },
+    {
+      "name": "Salary - Verify",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "http://localhost:8081/verify-salary" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"national_id\":\"12345678\"}"
+        }
+      }
+    },
+    {
+      "name": "Credit - Check",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "http://localhost:8082/check-credit" },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"national_id\":\"12345678\"}"
+        }
+      }
+    }
+  ]
+}

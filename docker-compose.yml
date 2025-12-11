@@ -1,0 +1,35 @@
+
+version: "3.9"
+
+services:
+  salary:
+    build:
+      context: .
+      dockerfile: ./salary/Dockerfile
+    container_name: salary_svc
+    ports:
+      - "8081:8081"
+
+  credit:
+    build:
+      context: .
+      dockerfile: ./credit/Dockerfile
+    container_name: credit_svc
+    ports:
+      - "8082:8082"
+
+  eligibility:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: eligibility_svc
+    environment:
+      # IMPORTANT: use internal service names on the Compose network
+      SALARY_API_URL: "http://salary:8081"
+      CREDIT_API_URL: "http://credit:8082"
+      ANNUAL_INTEREST_PERCENT: "20"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - salary
+      - credit

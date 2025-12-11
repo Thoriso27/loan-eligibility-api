@@ -1,0 +1,151 @@
+**OpenAPI spec** — `openapi.yaml` (project root)
+```yaml
+openapi: 3.0.3
+info:
+  title: Loan Eligibility API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /apply-loan:
+    post:
+      summary: Evaluate loan eligibility
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [national_id, loan_amount, term_months]
+              properties:
+                national_id:
+                  type: string
+                  example: "12345678"
+                loan_amount:
+                  type: number
+                  example: 600000
+                term_months:
+                  type: integer
+                  example: 12
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [APPROVED, DECLINED]
+                  reason:
+                    type: string
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+                  monthly_payment:
+                    type: number
+                  annual_interest_percent:
+                    type: number
+                  application:
+                    $ref: '#/components/schemas/Application'
+                  salary:
+                    $ref: '#/components/schemas/SalaryResponse'
+                  credit:
+                    $ref: '#/components/schemas/CreditResponse'
+components:
+  schemas:
+    Application:
+      type: object
+      properties:
+        national_id: { type: string }
+        loan_amount: { type: number }
+        term_months: { type: integer }
+    SalaryResponse:
+      type: object
+      properties:
+        national_id: { type: string }
+        monthly_salary: { type: number }
+    CreditResponse:
+      type: object
+      properties:
+        national_id: { type: string }
+        credit_score: { type: integer }
+        active_defaults: { type: integer }
+        active_loans: { type: integer }**OpenAPI spec** — `openapi.yaml` (project root)
+```yaml
+openapi: 3.0.3
+info:
+  title: Loan Eligibility API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /apply-loan:
+    post:
+      summary: Evaluate loan eligibility
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [national_id, loan_amount, term_months]
+              properties:
+                national_id:
+                  type: string
+                  example: "12345678"
+                loan_amount:
+                  type: number
+                  example: 600000
+                term_months:
+                  type: integer
+                  example: 12
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [APPROVED, DECLINED]
+                  reason:
+                    type: string
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+                  monthly_payment:
+                    type: number
+                  annual_interest_percent:
+                    type: number
+                  application:
+                    $ref: '#/components/schemas/Application'
+                  salary:
+                    $ref: '#/components/schemas/SalaryResponse'
+                  credit:
+                    $ref: '#/components/schemas/CreditResponse'
+components:
+  schemas:
+    Application:
+      type: object
+      properties:
+        national_id: { type: string }
+        loan_amount: { type: number }
+        term_months: { type: integer }
+    SalaryResponse:
+      type: object
+      properties:
+        national_id: { type: string }
+        monthly_salary: { type: number }
+    CreditResponse:
+      type: object
+      properties:
+        national_id: { type: string }
+        credit_score: { type: integer }
+        active_defaults: { type: integer }
+        active_loans: { type: integer }
