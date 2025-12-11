@@ -20,7 +20,7 @@ Monthly repayment uses an **amortized** payment formula. Configure annual intere
 ## Project Structure
 # Loan Eligibility API
 
-This project implements a **Loan Eligibility API** in Go. It allows checking loan eligibility based on salary and credit information. For the **Salary Verification** and **Credit Bureau** services are embedded as mock endpoints inside the main service, making it fully self-contained and deployable.
+This project implements a **Loan Eligibility API** in Go. It allows checking loan eligibility based on salary and credit information. For the **Salary Verification** and **Credit Bureau** services are embedded as mock endpoints inside the main service, making it fully self contained and deployable.
 
 ---
 
@@ -36,6 +36,19 @@ This project implements a **Loan Eligibility API** in Go. It allows checking loa
   "loan_amount": 50000,
   "term_months": 12
 }
+
+##** TEST DATA **
+Salary Data
+National ID	Monthly Salary
+12345678	350,000
+87654321	120,000
+99999999	500,000
+Credit Data
+National ID	Credit Score	Active Defaults	Active Loans
+12345678	650	0	2
+87654321	540	0	1
+99999999	720	1	4
+
 ## **Error Handling and Business Logic**
 
 - The **Loan Eligibility API** evaluates loan applications based on:
