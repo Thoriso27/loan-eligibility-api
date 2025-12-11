@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: loan-api
+    env: go
+    buildCommand: "go build -o loan-api"
+    startCommand: "./loan-api"
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8080
