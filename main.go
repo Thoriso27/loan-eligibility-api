@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"math"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 	"time"
 )
 
+// ---------- Data Types ----------
 type LoanRequest struct {
 	NationalID string  `json:"national_id"`
 	LoanAmount float64 `json:"loan_amount"`
@@ -44,10 +44,21 @@ type CreditResponse struct {
 	ActiveLoans    int    `json:"active_loans"`
 }
 
-var httpClient = &http.Client{Timeout: 5 * time.Second}
+// ---------- Mock Salary Data ----------
+var salaryData = map[string]float64{
+	"12345678": 350000,
+	"87654321": 120000,
+	"99999999": 500000,
+}
 
-// ---- helpers: finance, retry, request id ----
+// ---------- Mock Credit Data ----------
+var creditData = map[string]CreditResponse{
+	"12345678": {NationalID: "12345678", CreditScore: 650, ActiveDefaults: 0, ActiveLoans: 2},
+	"87654321": {NationalID: "87654321", CreditScore: 540, ActiveDefaults: 0, ActiveLoans: 1},
+	"99999999": {NationalID: "99999999", CreditScore: 720, ActiveDefaults: 1, ActiveLoans: 4},
+}
 
+// ---------- Helpers ----------
 func amortizedMonthlyPayment(loanAmount float64, termMonths int, annualInterestPercent float64) float64 {
 	if termMonths <= 0 || loanAmount <= 0 {
 		return 0
@@ -56,218 +67,147 @@ func amortizedMonthlyPayment(loanAmount float64, termMonths int, annualInterestP
 	if monthlyRate == 0 {
 		return math.Round((loanAmount/float64(termMonths))*100) / 100
 	}
-	r := monthlyRate
-	n := float64(termMonths)
-	p := loanAmount
-	power := math.Pow(1+r, n)
-	payment := p * (r * power) / (power - 1)
+	power := math.Pow(1+monthlyRate, float64(termMonths))
+	payment := loanAmount * (monthlyRate * power) / (power - 1)
 	return math.Round(payment*100) / 100
 }
 
-// Non-generic retry helpers for older Go versions
-func withRetrySalary(attempts int, sleep time.Duration, fn func() (SalaryResponse, error)) (SalaryResponse, error) {
-	var zero SalaryResponse
-	var err error
-	for i := 0; i < attempts; i++ {
-		var v SalaryResponse
-		v, err = fn()
-		if err == nil {
-			return v, nil
-		}
-		time.Sleep(sleep)
+// ---------- Mock Salary API ----------
+func verifySalaryHandler(w http.ResponseWriter, r *http.Request) {
+	reqID := r.Header.Get("X-Request-ID")
+	if reqID != "" {
+		w.Header().Set("X-Request-ID", reqID)
 	}
-	return zero, err
-}
 
-func withRetryCredit(attempts int, sleep time.Duration, fn func() (CreditResponse, error)) (CreditResponse, error) {
-	var zero CreditResponse
-	var err error
-	for i := 0; i < attempts; i++ {
-		var v CreditResponse
-		v, err = fn()
-		if err == nil {
-			return v, nil
-		}
-		time.Sleep(sleep)
-	}
-	return zero, err
-}
-
-func getOrCreateReqID(r *http.Request) string {
-	id := r.Header.Get("X-Request-ID")
-	if id == "" {
-		id = strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	return id
-}
-
-type httpError struct {
-	StatusCode int
-	Body       string
-}
-
-func (e *httpError) Error() string {
-	return "http error: " + strconv.Itoa(e.StatusCode) + " - " + e.Body
-}
-
-// ---- external calls ----
-
-func callSalaryAPI(baseURL, nationalID, reqID string) (SalaryResponse, error) {
-	body, _ := json.Marshal(map[string]string{"national_id": nationalID})
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/verify-salary", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Request-ID", reqID)
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return SalaryResponse{}, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(res.Body)
-		return SalaryResponse{}, &httpError{StatusCode: res.StatusCode, Body: string(b)}
-	}
-	var sr SalaryResponse
-	if err := json.NewDecoder(res.Body).Decode(&sr); err != nil {
-		return SalaryResponse{}, err
-	}
-	return sr, nil
-}
-
-func callCreditAPI(baseURL, nationalID, reqID string) (CreditResponse, error) {
-	body, _ := json.Marshal(map[string]string{"national_id": nationalID})
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/check-credit", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Request-ID", reqID)
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return CreditResponse{}, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(res.Body)
-		return CreditResponse{}, &httpError{StatusCode: res.StatusCode, Body: string(b)}
-	}
-	var cr CreditResponse
-	if err := json.NewDecoder(res.Body).Decode(&cr); err != nil {
-		return CreditResponse{}, err
-	}
-	return cr, nil
-}
-
-// ---- HTTP handler ----
-
-func loanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST requests allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Only POST allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	reqID := getOrCreateReqID(r)
-	w.Header().Set("X-Request-ID", reqID)
-
-	var request LoanRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	var req struct {
+		NationalID string `json:"national_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NationalID == "" {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if request.NationalID == "" || request.LoanAmount <= 0 || request.TermMonths <= 0 {
-		http.Error(w, "Missing or invalid fields", http.StatusBadRequest)
+
+	monthly, ok := salaryData[req.NationalID]
+	if !ok {
+		http.Error(w, "Salary record not found", http.StatusNotFound)
 		return
 	}
 
-	salaryURL := os.Getenv("SALARY_API_URL")
-	creditURL := os.Getenv("CREDIT_API_URL")
-	annualRate := 20.0 // default
-	if v := os.Getenv("ANNUAL_INTEREST_PERCENT"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			annualRate = f
-		}
-	}
-	if salaryURL == "" || creditURL == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":      "config_error",
-			"message":    "Service URLs not configured",
-			"request_id": reqID,
-		})
-		return
-	}
-
-	// Salary call with retrySalary
-	log.Printf("req_id=%s calling salary %s national_id=%s", reqID, salaryURL, request.NationalID)
-	salary, err := withRetrySalary(3, 250*time.Millisecond, func() (SalaryResponse, error) {
-		return callSalaryAPI(salaryURL, request.NationalID, reqID)
+	_ = json.NewEncoder(w).Encode(SalaryResponse{
+		NationalID:    req.NationalID,
+		MonthlySalary: monthly,
 	})
+}
 
-	if err != nil {
-		// If the error is a 404 from salary, treat as a business decline (domain choice).
-		if httpErr, ok := err.(*httpError); ok && httpErr.StatusCode == http.StatusNotFound {
+// ---------- Mock Credit API ----------
+func checkCreditHandler(w http.ResponseWriter, r *http.Request) {
+	reqID := r.Header.Get("X-Request-ID")
+	if reqID != "" {
+		w.Header().Set("X-Request-ID", reqID)
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		NationalID string `json:"national_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NationalID == "" {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	credit, ok := creditData[req.NationalID]
+	if !ok {
+		http.Error(w, "Credit record not found", http.StatusNotFound)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(credit)
+}
+
+// ---------- Loan Eligibility Handler ----------
+func loanHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	reqID := strconv.FormatInt(time.Now().UnixNano(), 36)
+	w.Header().Set("X-Request-ID", reqID)
+
+	var request LoanRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.NationalID == "" || request.LoanAmount <= 0 || request.TermMonths <= 0 {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	annualRate := 20.0
+
+	// Call mock Salary API
+	salaryBody, _ := json.Marshal(map[string]string{"national_id": request.NationalID})
+	salaryReq, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/verify-salary", bytes.NewBuffer(salaryBody))
+	salaryReq.Header.Set("Content-Type", "application/json")
+	salaryReq.Header.Set("X-Request-ID", reqID)
+	salaryResp, err := http.DefaultClient.Do(salaryReq)
+	var salary SalaryResponse
+	if err != nil || salaryResp.StatusCode != http.StatusOK {
+		if salaryResp != nil && salaryResp.StatusCode == http.StatusNotFound {
 			monthly := amortizedMonthlyPayment(request.LoanAmount, request.TermMonths, annualRate)
-			reasons := []string{"Salary record not found"}
-			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(LoanResponse{
 				Status:          "DECLINED",
-				Reason:          reasons[0],
-				Reasons:         reasons,
+				Reason:          "Salary record not found",
+				Reasons:         []string{"Salary record not found"},
 				MonthlyPayment:  monthly,
 				AnnualInterest:  annualRate,
-				SalaryEcho:      nil, // unknown
+				SalaryEcho:      nil,
 				CreditEcho:      nil,
 				ApplicationEcho: &request,
 			})
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":      "salary_service_unavailable",
-			"message":    "Failed to verify salary",
-			"detail":     err.Error(),
-			"request_id": reqID,
-		})
+		http.Error(w, "Failed to verify salary", http.StatusBadGateway)
 		return
 	}
+	_ = json.NewDecoder(salaryResp.Body).Decode(&salary)
+	defer salaryResp.Body.Close()
 
-	// Credit call with retry
-
-	log.Printf("req_id=%s calling credit %s national_id=%s", reqID, creditURL, request.NationalID)
-	credit, err := withRetryCredit(3, 250*time.Millisecond, func() (CreditResponse, error) {
-		return callCreditAPI(creditURL, request.NationalID, reqID)
-	})
-
-	if err != nil {
-		// Treat credit 404 as business decline (no bureau record)
-		if httpErr, ok := err.(*httpError); ok && httpErr.StatusCode == http.StatusNotFound {
+	// Call mock Credit API
+	creditBody, _ := json.Marshal(map[string]string{"national_id": request.NationalID})
+	creditReq, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/check-credit", bytes.NewBuffer(creditBody))
+	creditReq.Header.Set("Content-Type", "application/json")
+	creditReq.Header.Set("X-Request-ID", reqID)
+	creditResp, err := http.DefaultClient.Do(creditReq)
+	var credit CreditResponse
+	if err != nil || creditResp.StatusCode != http.StatusOK {
+		if creditResp != nil && creditResp.StatusCode == http.StatusNotFound {
 			monthly := amortizedMonthlyPayment(request.LoanAmount, request.TermMonths, annualRate)
-			reasons := []string{"Credit record not found"}
-			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(LoanResponse{
 				Status:          "DECLINED",
-				Reason:          reasons[0],
-				Reasons:         reasons,
+				Reason:          "Credit record not found",
+				Reasons:         []string{"Credit record not found"},
 				MonthlyPayment:  monthly,
 				AnnualInterest:  annualRate,
-				SalaryEcho:      &salary, // salary known
+				SalaryEcho:      &salary,
 				CreditEcho:      nil,
 				ApplicationEcho: &request,
 			})
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":      "credit_service_unavailable",
-			"message":    "Failed to verify credit",
-			"detail":     err.Error(),
-			"request_id": reqID,
-		})
+		http.Error(w, "Failed to verify credit", http.StatusBadGateway)
 		return
 	}
+	_ = json.NewDecoder(creditResp.Body).Decode(&credit)
+	defer creditResp.Body.Close()
 
-	// Decision rules
+	// Decision logic
 	monthly := amortizedMonthlyPayment(request.LoanAmount, request.TermMonths, annualRate)
 	reasons := []string{}
 	if salary.MonthlySalary < 3*monthly {
@@ -283,9 +223,7 @@ func loanHandler(w http.ResponseWriter, r *http.Request) {
 		reasons = append(reasons, "More than 3 active loans")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if len(reasons) > 0 {
-		log.Printf("req_id=%s declined id=%s reasons=%v monthly=%v", reqID, request.NationalID, reasons, monthly)
 		_ = json.NewEncoder(w).Encode(LoanResponse{
 			Status:          "DECLINED",
 			Reason:          reasons[0],
@@ -299,7 +237,6 @@ func loanHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("req_id=%s approved id=%s monthly=%v", reqID, request.NationalID, monthly)
 	_ = json.NewEncoder(w).Encode(LoanResponse{
 		Status:          "APPROVED",
 		MonthlyPayment:  monthly,
@@ -310,12 +247,14 @@ func loanHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ---------- Main ----------
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/apply-loan", loanHandler)
+	mux.HandleFunc("/verify-salary", verifySalaryHandler)
+	mux.HandleFunc("/check-credit", checkCreditHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
@@ -327,15 +266,13 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Run server
 	go func() {
-		log.Println("Eligibility API running on :8080")
+		log.Println("Loan Eligibility API (with Salary & Credit mocks) running on :8080")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}
 	}()
 
-	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
@@ -344,5 +281,5 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("server shutdown error: %v", err)
 	}
-	log.Println("Eligibility service exited")
+	log.Println("Service exited")
 }

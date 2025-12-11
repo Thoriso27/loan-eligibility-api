@@ -14,3 +14,4 @@ WORKDIR /app
 COPY --from=build /app/eligibility ./
 EXPOSE 8080
 CMD ["./eligibility"]
+
